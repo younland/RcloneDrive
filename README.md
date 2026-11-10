@@ -11,6 +11,11 @@
     <img src="https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white&labelColor=1a1b26" alt="macOS" />
     <img src="https://img.shields.io/badge/Linux-fcc624?style=for-the-badge&logo=linux&logoColor=black&labelColor=1a1b26" alt="Linux" />
   </p>
+  <p align="center">
+    <a href="https://awesomemygo.dev/apps/rclonedrive">
+      <img src="https://awesomemygo.dev/badge.svg" alt="Listed on Awesome MyGo">
+    </a>
+  </p>
   <p>
     <a href="#-核心特性">核心特性</a> ·
     <a href="#-安装">安装</a> ·
