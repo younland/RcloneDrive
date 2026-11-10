@@ -212,9 +212,13 @@ func formatSize(bytes float64) string {
 	return fmt.Sprintf("%.*f %s", digits, scaled, units[index])
 }
 
-// selectLabeled 是 ui.Select 的 label↔value 变体：选项按标签展示，
-// 选中值写回 value（旧前端 SelectItem 用 label 展示、value 提交）。
-// 标签必须唯一（连接类型枚举的中文标签满足）。
+// selectLabeled 是下拉的 label↔value 变体：选项按标签展示，选中值直接
+// 写回 value（SelectBase 绑定真实值指针，Item 的展示文本用 label）。
+// 标签必须唯一（连接类型枚举的中文标签满足）；当前值不在列表时触发器
+// 原样显示该值。
+// 弹层用 SelectBase 自建并限高滚动——ui.Select 的弹层平铺全部选项且无法
+// 滚动，选项多时（盘符最多 24 个）会被窗口底边截断（2026-10 盘符下拉修复）。
+// 触发器与弹层样式对齐 ui.Select 的主题外观（mygo styleButton/stylePanel）。
 func selectLabeled(c *ui.Context, t *ui.Theme, value *string, labels, values []string, placeholder string) {
 	if len(labels) == 0 {
 		return
@@ -226,17 +230,43 @@ func selectLabeled(c *ui.Context, t *ui.Theme, value *string, labels, values []s
 			break
 		}
 	}
-	before := shown
-	e := ui.Select(c, &shown, labels).MinWidth(0).FillWidth()
-	_ = t
-	if e.Changed() && shown != before {
-		for i := range labels {
-			if labels[i] == shown {
-				*value = values[i]
-				break
-			}
-		}
+	sel := ui.SelectBase(c, value)
+	tr := sel.Trigger
+	tr.Padding(t.Space(1.5), t.Space(3.5)).Gap(t.Space(1.5)).Radius(t.Radius).
+		Background(t.Surface).TextColor(t.Text).Border(1, t.Border).
+		Justify(ui.SpaceBetween).FillWidth()
+	if tr.Hovered() {
+		tr.Background(t.SurfaceHover)
 	}
+	if tr.Pressed() {
+		tr.Background(t.SurfacePressed)
+	}
+	tr.Children(func() {
+		ui.Text(c, shown).SingleLine()
+		ui.Icon(c, iconChevronDown).Size(13, 13)
+	})
+	sel.Popup(func(panel ui.Element) {
+		panel.Margin(t.Space(1), 0, 0, 0).Padding(t.Space(1)).Radius(t.Radius + 2).
+			Background(t.Background).Border(1, t.Border).
+			Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, 0.18))
+		// MaxHeight 约起滚动；选项少时收缩为内容高度，视觉与平铺一致
+		ui.Scroll(c).MaxHeight(240).FillWidth().Children(func() {
+		for i := range values {
+			// Label 让可点击 item 自身可被命中（mygo 官方测试同款模式：
+			// 仅 Children 文本时点击传导不到 item 的 Clicked 判定）
+			item := sel.Item(values[i]).Padding(t.Space(1.5), t.Space(2.5)).Radius(t.Radius).Label(labels[i])
+				switch {
+				case item.Highlighted():
+					item.Background(t.Accent).TextColor(t.AccentText)
+				case values[i] == *value:
+					item.Background(t.Surface)
+				}
+				item.Children(func() {
+					ui.Text(c, labels[i]).SingleLine()
+				})
+			}
+		})
+	})
 }
 
 // --- 图标（24x24，描边风格，ui.Icon 以文字颜色着色；Parse 一次全局复用） ---

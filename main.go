@@ -23,6 +23,11 @@ var (
 )
 
 func main() {
+	// 最先接日志：之后的 rclone/应用日志统一落盘（windowsgui 无控制台）
+	if err := rclone.SetupLogging(); err != nil {
+		log.Printf("日志落盘初始化失败（仅本次进程内输出）: %v", err)
+	}
+
 	if err := rclone.Ensure(); err != nil {
 		log.Printf("rclone 配置初始化失败: %v", err)
 	}
@@ -91,6 +96,12 @@ func main() {
 
 		if _, err := newTrayManager(windows, remoteService, mountService, updateService); err != nil {
 			log.Printf("托盘创建失败: %v", err)
+		}
+
+		// 管理员运行的挂载盘符对桌面（非提权）不可见，启动即警告（见 specs/mount）
+		if isElevated() {
+			notifyUser("error", "正在以管理员身份运行",
+				"管理员运行的挂载盘符对桌面不可见，请退出后以普通权限重新启动 RcloneDrive。")
 		}
 	})
 

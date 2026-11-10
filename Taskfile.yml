@@ -17,7 +17,7 @@ version: '3'
 
 vars:
   APP_NAME: rclonedrive
-  APP_VERSION: '{{.APP_VERSION | default "0.2.4"}}'
+  APP_VERSION: '{{.APP_VERSION | default "0.2.7"}}'
   BIN_DIR: bin
   # WinFsp 头文件目录：可用环境变量 WINFSP_INC 指向外部 SDK。
   WINFSP_INC_DIR: '{{.WINFSP_INC | default (printf "%s/third_party/winfsp/inc/fuse" .ROOT_DIR)}}'

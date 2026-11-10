@@ -146,10 +146,14 @@ func backendType(info *fs.RegInfo) BackendType {
 	if label == "" {
 		label = shortLabel(info.Description)
 	}
+	help, ok := backendDescriptions[info.Name]
+	if !ok {
+		help = strings.TrimSpace(info.Description)
+	}
 	return BackendType{
 		Type:       info.Name,
 		Label:      label,
-		Help:       strings.TrimSpace(info.Description),
+		Help:       help,
 		Authorized: needsAuth(info),
 	}
 }
@@ -162,18 +166,6 @@ func needsAuth(info *fs.RegInfo) bool {
 		}
 	}
 	return false
-}
-
-// optionLabel 返回字段的中文标签，未收录时把 rclone 的蛇形名转成可读标题。
-func optionLabel(name string) string {
-	if label, ok := optionLabels[name]; ok {
-		return label
-	}
-	words := strings.FieldsFunc(name, func(r rune) bool { return r == '_' })
-	for i, word := range words {
-		words[i] = strings.ToUpper(word[:1]) + word[1:]
-	}
-	return strings.Join(words, " ")
 }
 
 // shortLabel 取后端描述的首句并截断，作为未收录中文名时的兜底标签。
@@ -298,79 +290,5 @@ var backendLabels = map[string]string{
 	"zoho":                 "Zoho",
 }
 
-// webdavVendorLabels 是 webdav 服务商选项的简短中文名（value 是写入配置的标识符，不变）。
-var webdavVendorLabels = map[string]string{
-	"fastmail":        "Fastmail 文件",
-	"nextcloud":       "Nextcloud 私有云",
-	"owncloud":        "ownCloud 10（PHP 版）",
-	"infinitescale":   "ownCloud Infinite Scale",
-	"sharepoint":      "SharePoint 在线版（微软账号）",
-	"sharepoint-ntlm": "SharePoint（NTLM 认证，自建/本地）",
-	"rclone":          "rclone WebDAV 服务器",
-	"other":           "其他服务",
-}
-
-// optionHelp 返回字段说明的中文翻译，未收录时保留 rclone 原文。
-// 与 optionLabel 一样按字段名映射：这些字段在各后端里的含义基本一致。
-func optionHelp(name, fallback string) string {
-	if help, ok := optionHelps[name]; ok {
-		return help
-	}
-	return fallback
-}
-
-// optionHelps 是常见配置字段说明的中文提示（tooltip 内容）。
-var optionHelps = map[string]string{
-	"url":           "要连接的服务器地址，例如 https://example.com。",
-	"vendor":        "所用的 WebDAV 服务/软件类型，影响 rclone 的兼容性处理；不确定时选「其他服务」。",
-	"user":          "登录该服务的用户名。",
-	"pass":          "登录该服务的密码。",
-	"bearer_token":  "用 Bearer 令牌代替用户名/密码登录（如 Macaroon）。",
-	"host":          "服务器主机名或 IP 地址。",
-	"port":          "服务器端口。",
-	"key_file":      "SSH 私钥文件路径，留空表示使用密码登录。",
-	"key_file_pass": "私钥文件的口令（私钥未设口令则留空）。",
-	"token":         "OAuth 授权令牌，可通过 rclone authorize 获取。",
-}
-
-// optionLabels 是常见配置字段的中文标签；未收录的用字段名转标题兜底。
-var optionLabels = map[string]string{
-	"access_key_id":           "Access Key ID",
-	"account":                 "账号",
-	"acl":                     "访问控制（ACL）",
-	"auth_url":                "授权地址",
-	"bucket":                  "存储桶",
-	"chunk_size":              "分块大小",
-	"client_id":               "客户端 ID（Client ID）",
-	"client_secret":           "客户端密钥（Client Secret）",
-	"config_is_local":         "使用本地配置文件",
-	"description":             "说明",
-	"encoding":                "文件名编码",
-	"endpoint":                "接入点（Endpoint）",
-	"env_auth":                "从环境变量读取凭据",
-	"host":                    "主机地址",
-	"key_file":                "私钥文件",
-	"key_file_pass":           "私钥口令",
-	"location":                "区域",
-	"no_check_bucket":         "不自动创建存储桶",
-	"pass":                    "密码",
-	"path":                    "路径",
-	"port":                    "端口",
-	"provider":                "服务商",
-	"region":                  "区域（Region）",
-	"remote":                  "远程路径",
-	"root_folder_id":          "根目录 ID",
-	"secret_access_key":       "Secret Access Key",
-	"server_side_encryption":  "服务端加密",
-	"session_token":           "会话令牌（Session Token）",
-	"shared_credentials_file": "共享凭据文件",
-	"storage_class":           "存储级别",
-	"team_drive":              "共享盘",
-	"token":                   "授权令牌（token）",
-	"token_url":               "令牌地址",
-	"upload_cutoff":           "分块上传阈值",
-	"url":                     "服务器地址",
-	"use_multipart_upload":    "使用分段上传",
-	"user":                    "用户名",
-	"vendor":                  "服务商",
-}
+// webdavVendorLabels、optionLabels、optionHelps 与 optionLabel/optionHelp
+// 在 localize.go：界面文案中文表集中维护，覆盖率由 localize_test.go 守卫。

@@ -133,7 +133,12 @@ func (s *MountService) mount(name string, allowAutoOpen bool) error {
 			return fmt.Errorf("没有可用的挂载点")
 		}
 	}
-	if err := s.mounts.Mount(name, target, remote.ReadOnly, remote.Insecure); err != nil {
+	if err := s.mounts.Mount(name, target, rclone.MountOptions{
+		ReadOnly:   remote.ReadOnly,
+		Insecure:   remote.Insecure,
+		DiskTotal:  remote.DiskTotal,
+		RemotePath: remote.RemotePath,
+	}); err != nil {
 		return err
 	}
 	if allowAutoOpen && remote.AutoOpen {

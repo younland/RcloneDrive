@@ -29,7 +29,10 @@ BrandingText " "
 
 !define MUI_ICON "${ROOT}\build\windows\appicon.ico"
 !define MUI_UNICON "${ROOT}\build\windows\appicon.ico"
-!define MUI_FINISHPAGE_RUN "$INSTDIR\RcloneDrive.exe"
+; 完成页"运行"走 LaunchUnelevated：安装器是管理员级，直接 Exec 会让应用
+; 继承提权 token，而提权进程挂载的盘符对桌面（非提权）会话不可见。
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_FUNCTION "LaunchUnelevated"
 !define MUI_FINISHPAGE_SHOWREADME
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "创建桌面快捷方式"
 !define MUI_FINISHPAGE_SHOWREADME_FUNCTION CreateDesktopShortcut
@@ -47,6 +50,12 @@ Function .onInit
 FunctionEnd
 
 Section "RcloneDrive" SEC_APP
+  ; 覆盖安装/升级前结束运行中的实例，否则 exe 文件锁导致写入失败
+  ; （Abort/Retry/Ignore 弹窗）。/F 必须带：应用关闭窗口是隐藏到托盘，
+  ; 不带 /F 的 taskkill 只发 WM_CLOSE，会被 OnClose 拦截成隐藏。
+  ; 强杀跳过挂载清理：WinFsp 卷随进程死亡自动卸载，重启应用后自动重连。
+  ExecWait 'taskkill /IM RcloneDrive.exe /F'
+  Sleep 500 ; 等系统释放文件句柄
   SetOutPath "$INSTDIR"
   ; 暂存目录里可能留有本安装器自身的旧产物（RcloneDrive Setup*.exe），排除
   File /r /x "RcloneDrive Setup*.exe" "${STAGE}\*.*"
@@ -98,6 +107,13 @@ Function CreateDesktopShortcut
   CreateShortCut "$DESKTOP\RcloneDrive.lnk" "$INSTDIR\RcloneDrive.exe"
 FunctionEnd
 
+; 经 explorer 中转降权启动：explorer 以桌面会话（非提权）token 拉起应用后退出。
+; 已知限制：explorer 未运行的极简环境（Server Core）拉不起应用，此时用户可
+; 手动双击快捷方式启动。
+Function LaunchUnelevated
+  Exec 'explorer.exe "$INSTDIR\RcloneDrive.exe"'
+FunctionEnd
+
 ; Explorer 会在快捷方式出现后几秒才打开它，删除需重试。
 Function un.DeleteShortcut
   Exch $0
@@ -117,6 +133,9 @@ Function un.DeleteShortcut
 FunctionEnd
 
 Section "Uninstall"
+  ; 结束运行中的实例，否则 exe 文件锁导致删除失败（同安装 Section）
+  ExecWait 'taskkill /IM RcloneDrive.exe /F'
+  Sleep 500
   Push "$SMPROGRAMS\RcloneDrive.lnk"
   Call un.DeleteShortcut
   Push "$DESKTOP\RcloneDrive.lnk"

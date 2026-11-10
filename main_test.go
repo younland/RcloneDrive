@@ -1,6 +1,8 @@
 package main
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"rclonedrive/internal/rclone"
@@ -9,12 +11,14 @@ import (
 )
 
 // 视图冒烟测试：ui.Tester 在无窗口环境下渲染视图、读文本、模拟点击。
-// 服务使用真实实现（RemoteService 读测试机的 remotes.json，通常为空列表；
-// 不写配置、不做网络操作），覆盖三个窗口的关键渲染路径。
+// 服务与 rclone 配置由 TestMain 统一隔离到临时目录（testRoot），不读写
+// 真实用户配置、不弹系统通知，覆盖各窗口的关键渲染路径。
 
 func testServices() {
 	mountManager = rclone.NewMountManager()
 	remoteService = NewRemoteService(mountManager)
+	// 元数据指向 TestMain 的隔离目录（NewRemoteService 默认用真实用户目录）
+	remoteService.metaPath = filepath.Join(testRoot, "remotes.json")
 	mountService = NewMountService(remoteService, mountManager)
 	systemService = &SystemService{}
 	settingsService = &SettingsService{}
@@ -61,6 +65,35 @@ func TestDriveEditorView(t *testing.T) {
 		}
 	}
 
+	// 盘符下拉弹层：展开后全部盘符都构建在弹层里（限高滚动可滚到全部，
+	// 2026-10 修复弹层被窗口底边截断且无法滚动的问题）。默认盘符必然在
+	// 列表里，触发器按其标签可点。
+	letters := state.driveLetters()
+	if len(letters) >= 2 {		if err := tt.Click(strings.TrimSuffix(state.mountPoint, ":")); err != nil {
+			t.Fatalf("click 盘符下拉触发器: %v", err)
+		}
+		first := strings.TrimSuffix(letters[0], ":")
+		last := strings.TrimSuffix(letters[len(letters)-1], ":")
+		if !tt.HasText(first) || !tt.HasText(last) {
+			t.Fatalf("盘符弹层应包含首尾选项 %q/%q, texts %q", first, last, tt.Texts())
+		}
+		target := letters[1] // 视口内的第二项（首项是当前默认值；列表末尾在
+		// MaxHeight 裁剪区外，点击穿透属正常滚动行为，headless 无法模拟滚动）
+		if target != state.mountPoint {
+			// 先 Move 再 Click：item 首次捕获指针会标记输入 consumed 并
+			// 重建一帧，跳过 Move 的直接点击会因 Down/Up 分属两个构建
+			// pass 而选不中（真实鼠标移动不受影响，官方测试同款顺序）
+			if r, ok := tt.Find(strings.TrimSuffix(target, ":")); ok {
+				tt.Move(r.X+r.W/2, r.Y+r.H/2)
+			}
+			tt.Click(strings.TrimSuffix(target, ":")) // 选择后写回真实值（含冒号）
+			tt.Frame()
+			if state.mountPoint != target {
+				t.Fatalf("选择 %s 后 mountPoint = %q", target, state.mountPoint)
+			}
+		}
+	}
+
 	// 说明页
 	state.tab = 2
 	tt.Frame()
@@ -85,6 +118,91 @@ func TestSettingsView(t *testing.T) {
 	}
 	if !tt.HasText("当前版本") || !tt.HasText("检查更新") {
 		t.Fatalf("texts %q do not contain the update section", tt.Texts())
+	}
+
+	// 「启动」分区的日志入口：只验证渲染，不点击（点击会真实打开资源管理器）
+	if err := tt.Click("启动"); err != nil {
+		t.Fatalf("click 启动: %v", err)
+	}
+	if !tt.HasText("打开日志文件夹") {
+		t.Fatalf("texts %q do not contain the logs entry", tt.Texts())
+	}
+}
+
+// TestDriveEditorRenameEditable 编辑态：名称回填且可编辑（改名功能，
+// 2026 add-drive-rename）。注入内存条目，不落盘、不污染真实 remotes.json。
+func TestDriveEditorRenameEditable(t *testing.T) {
+	testServices()
+	remoteService.remotes = append(remoteService.remotes, Remote{
+		Name: "测试盘", Type: "webdav", MountPoint: "F:",
+		Options: map[string]string{"url": "https://x", "vendor": "other"},
+	})
+	state := newDriveEditorState()
+	state.setTarget("测试盘")
+	tt := ui.NewTester(state.view, driveWindowW, driveWindowH)
+	tt.Frame() // ensureLoaded 同步回填
+	// 名称输入框的值不进 labels 表，直接断言懒加载回填的状态
+	if state.name != "测试盘" {
+		t.Fatalf("编辑态应回填名称, got %q", state.name)
+	}
+}
+
+// TestDriveEditorDiskTotal 显示容量：界面渲染 + 编辑态回填 + 保存携带（
+// 2026-10 容量显示修复：后端不报告容量时手动指定驱动器显示总量）。
+func TestDriveEditorDiskTotal(t *testing.T) {
+	testServices()
+	remoteService.remotes = append(remoteService.remotes, Remote{
+		Name: "容量盘", Type: "webdav", MountPoint: "F:", DiskTotal: "2TiB",
+		Options: map[string]string{"url": "https://x", "vendor": "other"},
+	})
+	state := newDriveEditorState()
+	tt := ui.NewTester(state.view, driveWindowW, driveWindowH)
+	if !tt.HasText("显示容量") {
+		t.Fatalf("texts %q do not contain 显示容量", tt.Texts())
+	}
+	if state.diskTotal != "" {
+		t.Fatalf("新增态显示容量应为空(自动), got %q", state.diskTotal)
+	}
+	state.setTarget("容量盘")
+	tt.Frame() // ensureLoaded 同步回填
+	if state.diskTotal != "2TiB" {
+		t.Fatalf("编辑态应回填显示容量, got %q", state.diskTotal)
+	}
+	if got := state.buildRemote().DiskTotal; got != "2TiB" {
+		t.Fatalf("保存应携带显示容量, got %q", got)
+	}
+}
+
+// TestDriveEditorRemotePath SMB 共享路径输入：界面渲染 + 编辑态回填 + 保存携带
+// （2026-10 SMB 共享挂载修复：后端无 root 配置项时显示"共享路径/远程路径"）。
+func TestDriveEditorRemotePath(t *testing.T) {
+	testServices()
+	// 写入真实的 rclone 配置节，让编辑窗的配置回读（Options）完整走通
+	if err := rclone.SaveRemote("SMB盘", "smb", map[string]string{
+		"host": "192.0.2.10", "user": "demo", "pass": "secret",
+	}); err != nil {
+		t.Fatalf("SaveRemote: %v", err)
+	}
+	remoteService.remotes = append(remoteService.remotes, Remote{
+		Name: "SMB盘", Type: "smb", MountPoint: "K:", RemotePath: "backup/照片",
+		Options: map[string]string{"host": "192.0.2.10", "user": "demo"},
+	})
+	state := newDriveEditorState()
+	state.setTarget("SMB盘")
+	tt := ui.NewTester(state.view, driveWindowW, driveWindowH)
+	tt.Frame() // ensureLoaded 同步回填
+	if !tt.HasText("共享路径") {
+		t.Fatalf("smb 类型应显示共享路径输入, texts %q", tt.Texts())
+	}
+	if state.remotePath != "backup/照片" {
+		t.Fatalf("编辑态应回填共享路径, got %q", state.remotePath)
+	}
+	if got := state.buildRemote().RemotePath; got != "backup/照片" {
+		t.Fatalf("保存应携带共享路径, got %q", got)
+	}
+	// 配置回读应把 host 填回表单选项（凭据从 rclone.conf 解密回读）
+	if host := state.options["host"]; host != "192.0.2.10" {
+		t.Fatalf("配置回读应回填 host, got %q", host)
 	}
 }
 

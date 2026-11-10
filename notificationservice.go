@@ -25,6 +25,11 @@ func notifyUser(level, title, body string) {
 	notifyUserTo("main", level, title, body)
 }
 
+// notifyNativeFn 是系统通知的出口，测试中替换为静默实现：headless 测试
+// 进程没有可见窗口，所有通知都会落到这条通道，不应真的弹系统气泡
+// （2026-10：跑 go test 时曾向用户连弹十余条"读取驱动器配置失败"）。
+var notifyNativeFn = notifyNative
+
 // notifyUserTo 与 notifyUser 相同，但 toast 出现在 target 指定的窗口上
 // （该窗口不可见时同样回落到系统通知）。target 为空按主窗口处理。
 func notifyUserTo(target, level, title, body string) {
@@ -35,11 +40,11 @@ func notifyUserTo(target, level, title, body string) {
 		pushToast(target, level, title, body)
 		return
 	}
-	notifyNative(title, body)
+	notifyNativeFn(title, body)
 }
 
 // notifyNativeOnly 只发系统通知，不在任何窗口弹 toast。
 // 连接/断开这类动作本身有界面状态反馈（卡片状态、托盘菜单），不需要窗口提示。
 func notifyNativeOnly(title, body string) {
-	notifyNative(title, body)
+	notifyNativeFn(title, body)
 }

@@ -1,7 +1,7 @@
 {
   "name": "RcloneDrive",
   "identifier": "com.example.rclonedrive",
-  "version": "0.2.4",
+  "version": "0.2.7",
   "icon": "resources/appicon.png",
   "out": "build"
 }

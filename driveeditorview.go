@@ -41,7 +41,9 @@ type driveEditorState struct {
 	autoConnect bool
 	readOnly    bool
 	insecure    bool
-	autoOpen    bool // 连接成功后自动打开挂载文件夹
+	diskTotal   string     // 手动配置的显示容量（如 "2TiB"），空 = 自动探测
+	remotePath  string     // 远程子路径（SMB 场景为共享名），空 = 挂远程根
+	autoOpen    bool       // 连接成功后自动打开挂载文件夹
 	options     map[string]string
 	invalid     map[string]bool
 	tab         int
@@ -251,6 +253,8 @@ func (s *driveEditorState) resetForm() {
 	s.name = ""
 	s.mountPoint = s.defaultMountPoint
 	s.autoConnect, s.readOnly, s.insecure, s.autoOpen = false, false, false, false
+	s.diskTotal = ""
+	s.remotePath = ""
 	s.invalid = make(map[string]bool)
 	s.seedOptions(false)
 	// 默认盘符可能被其他驱动器占用，落到第一个可用项
@@ -273,6 +277,8 @@ func (s *driveEditorState) fillFrom(remote Remote) {
 	s.autoConnect = remote.AutoConnect
 	s.readOnly = remote.ReadOnly
 	s.insecure = remote.Insecure
+	s.diskTotal = remote.DiskTotal
+	s.remotePath = remote.RemotePath
 	s.autoOpen = remote.AutoOpen
 	s.invalid = make(map[string]bool)
 	s.seedOptions(false)
@@ -280,6 +286,11 @@ func (s *driveEditorState) fillFrom(remote Remote) {
 	stored, err := remoteService.Options(remote.Name)
 	if err != nil {
 		notifyUserTo(driveWindowName, "error", "读取驱动器配置失败", err.Error())
+		// 元数据存在但配置节不在（孤儿条目等）：提示后关窗回列表，
+		// 不停留在一个无法回填的半初始化表单
+		if allWindows != nil {
+			allWindows.hide(driveWindowName)
+		}
 		return
 	}
 	for key, value := range stored {
@@ -518,6 +529,37 @@ func (s *driveEditorState) basicTab(c *ui.Context, t *ui.Theme, basic []rclone.F
 			}
 		})
 
+		// 显示容量：后端报不出容量时（如 WebDAV 无 quota），资源管理器会显示
+		// rclone 的 1 PiB 占位值（"1.00 PB 可用"），这里手动指定一个合理总量。
+		// 布局与表单其他行一致：label 在上、控件在下（水平 label 列会留大空隙）
+		ui.Column(c).Gap(4).FillWidth().Children(func() {
+			ui.Text(c, "显示容量").FontSize(t.FontSize - 1).TextColor(t.TextMuted).
+				Tooltip("驱动器属性中显示的总容量。选\"自动\"时探测后端真实容量；后端不报告容量（如部分 WebDAV 服务器）会显示 1 PB 占位值，此时可手动指定")
+			ui.Column(c).Width(160).Children(func() {
+				selectLabeled(c, t, &s.diskTotal,
+					[]string{"自动", "512 GB", "1 TB", "2 TB", "4 TB", "8 TB", "16 TB"},
+					[]string{"", "512GiB", "1TiB", "2TiB", "4TiB", "8TiB", "16TiB"}, "")
+			})
+		})
+
+		// 共享路径 / 远程路径：后端没有 root 配置项时（如 smb）才显示——有
+		// root 项的后端用既有高级字段即可。填写后挂载点直接是该路径内容
+		// 且容量为真实值；路径支持共享内子目录（name:share/sub 语法）
+		if s.findField("root") == nil {
+			label := "远程路径"
+			placeholder := "可选，如 folder/sub"
+			tooltip := "留空挂载远程根目录；填写远程子路径后，驱动器直接是该子目录的内容，容量显示为真实值。"
+			if s.selectedType == "smb" {
+				label = "共享路径"
+				placeholder = "可选，如 backup 或 backup/照片"
+				tooltip = "填写 NAS 上的共享或共享内路径（如 backup 或 backup/照片）后，驱动器直接是该路径的内容，容量显示为真实值；留空则显示全部共享文件夹，容量为虚拟占位值。"
+			}
+			ui.Column(c).Gap(4).FillWidth().Children(func() {
+				ui.Text(c, label).FontSize(t.FontSize - 1).TextColor(t.TextMuted).Tooltip(tooltip)
+				ui.TextInput(c, &s.remotePath).Label(label).Placeholder(placeholder).FillWidth().Tooltip(tooltip)
+			})
+		}
+
 		// 开关组：自动连接 / 只读模式 / 忽略证书错误 / 连接时自动打开
 		ui.Row(c).Gap(16).AlignItems(ui.Center).Wrap().Children(func() {
 			ui.Checkbox(c, &s.autoConnect, "自动连接")
@@ -554,17 +596,18 @@ func (s *driveEditorState) basicTab(c *ui.Context, t *ui.Theme, basic []rclone.F
 	})
 }
 
-// nameField 名称输入（编辑模式只读，对应旧 data-disabled=editing）。
+// nameField 名称输入：编辑模式同样可改（保存时按旧名定位，改名会同步
+// 迁移 rclone 配置节与本地记录，见 RemoteService.Update）。
 func (s *driveEditorState) nameField(c *ui.Context, t *ui.Theme) {
 	ui.Column(c).Gap(4).Children(func() {
 		label := ui.Text(c, "名称").FontSize(t.FontSize - 1).TextColor(t.TextMuted)
 		if s.editing() {
-			label.Tooltip("编辑模式下名称不可修改。")
+			label.Tooltip("修改名称将同步更新连接配置与本地记录。")
 		}
 		if s.invalid["__name"] {
 			label.TextColor(t.Danger)
 		}
-		ui.TextInput(c, &s.name).Label("名称").Placeholder("我的网盘").FillWidth().Disabled(s.editing())
+		ui.TextInput(c, &s.name).Label("名称").Placeholder("我的网盘").FillWidth()
 		if s.invalid["__name"] {
 			ui.Text(c, "请输入驱动器名称。").FontSize(t.FontSize - 2).TextColor(t.Danger)
 		}
@@ -805,6 +848,8 @@ func (s *driveEditorState) buildRemote() Remote {
 		AutoConnect: s.autoConnect,
 		ReadOnly:    s.readOnly,
 		Insecure:    s.insecure,
+		DiskTotal:   s.diskTotal,
+		RemotePath:  strings.Trim(strings.TrimSpace(s.remotePath), "/"),
 		AutoOpen:    s.autoOpen,
 		Options:     opts,
 	}
@@ -812,7 +857,7 @@ func (s *driveEditorState) buildRemote() Remote {
 
 func (s *driveEditorState) persist() error {
 	if s.editing() {
-		return remoteService.Update(s.buildRemote())
+		return remoteService.Update(s.editName, s.buildRemote())
 	}
 	return remoteService.Create(s.buildRemote())
 }

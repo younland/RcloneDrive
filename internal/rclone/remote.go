@@ -25,9 +25,6 @@ func ConfigCtx(ctx context.Context, insecure bool) context.Context {
 
 // TestRemote 在进程内建立连接并列出根目录，验证远程存储是否可用。
 func TestRemote(name string, insecure bool) error {
-	if err := Ensure(); err != nil {
-		return err
-	}
 	ctx, cancel := context.WithTimeout(ConfigCtx(context.Background(), insecure), testTimeout)
 	defer cancel()
 

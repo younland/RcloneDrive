@@ -1,6 +1,8 @@
 package main
 
 import (
+	"rclonedrive/internal/rclone"
+
 	"github.com/egoist/mygo/ui"
 )
 
@@ -172,7 +174,28 @@ func (s *settingsViewState) startupSection(c *ui.Context, t *ui.Theme) {
 			}
 		})
 		ui.Text(c, s.autoStartHint()).FontSize(t.FontSize - 2).TextColor(t.TextMuted)
+
+		// 诊断入口：应用与 rclone 的运行日志都写在这里（internal/rclone.SetupLogging）
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+			if ui.Button(c, "打开日志文件夹").Clicked() {
+				s.openLogsDir()
+			}
+			ui.Text(c, "应用与云盘连接的运行日志，排查连接问题时发给开发者").
+				FontSize(t.FontSize - 2).TextColor(t.TextMuted)
+		})
 	})
+}
+
+// openLogsDir 打开日志目录（不存在时由 LogsDir 创建）。
+func (s *settingsViewState) openLogsDir() {
+	dir, err := rclone.LogsDir()
+	if err != nil {
+		notifyUserTo(settingsWindowName, "error", "打开日志文件夹失败", err.Error())
+		return
+	}
+	if err := openDirectory(dir); err != nil {
+		notifyUserTo(settingsWindowName, "error", "打开日志文件夹失败", err.Error())
+	}
 }
 
 func (s *settingsViewState) setAutoStart(enabled bool) {
